@@ -48,7 +48,7 @@ import { developmentTestRoutes } from './routes/development-test-routes';
 import { orgRoutes } from './routes/org-routes';
 import { transferRoutes } from './routes/transfer-routes';
 import { userRoutes } from './routes/user-routes';
-import { deleteArtifactsRepo, ensureArtifactsRepo } from './services/artifacts-repo';
+import { deleteArtifactsRepo } from './services/artifacts-repo';
 import { handleGitProxy } from './services/git-proxy';
 import { getTemplate, getTemplateMetadata } from './templates';
 
@@ -1135,18 +1135,10 @@ app.post('/api/new-project', async (c) => {
 			email: userRow[0]?.email ?? 'user@example.com',
 		};
 
-		// Create the project's Cloudflare Artifacts repo and push the initial
-		// commit. This is best-effort: the project (D1 row + working tree) is
-		// already persisted, so a transient remote/git failure must not surface
-		// as "failed to create project". The local commit is authoritative and
-		// the push reconciles on the next commit.
+		// The local commit is part of project creation. Remote setup and push are
+		// best-effort inside gitInitialCommit and reconcile on the next commit.
 		const fsStub = filesystemNamespace.get(doId);
-		try {
-			await ensureArtifactsRepo(env, projectId);
-			await fsStub.gitInitialCommit(commitAuthor);
-		} catch (gitError) {
-			console.error('Initial git setup failed for new project (project still created):', gitError);
-		}
+		await fsStub.gitInitialCommit(commitAuthor);
 
 		trackProjectEvent({
 			organizationId,
@@ -1313,15 +1305,8 @@ app.post('/api/clone-project', async (c) => {
 			email: cloneUserRow[0]?.email ?? 'user@example.com',
 		};
 
-		// Create the cloned project's Artifacts repo and push the initial commit.
-		// Best-effort: the project is already persisted, so a transient remote/git
-		// failure must not surface as a clone failure; it reconciles on next commit.
-		try {
-			await ensureArtifactsRepo(env, newProjectId);
-			await destinationStub.gitInitialCommit(cloneCommitAuthor);
-		} catch (gitError) {
-			console.error('Initial git setup failed for cloned project (project still created):', gitError);
-		}
+		// As with creation, local Git must be ready when cloning returns.
+		await destinationStub.gitInitialCommit(cloneCommitAuthor);
 
 		trackProjectEvent({
 			organizationId,

@@ -35,6 +35,15 @@ function errno(code: string, message: string): NodeJS.ErrnoException {
 	return error;
 }
 
+function normalizeWorkspaceError(error: unknown): unknown {
+	if (!(error instanceof Error)) return error;
+	if ('code' in error && typeof error.code === 'string') return error;
+
+	const code = /^([A-Z]+):/.exec(error.message)?.[1];
+	if (!code) return error;
+	return errno(code, error.message.slice(code.length + 1).trimStart());
+}
+
 /** A node:fs `Dirent`-compatible directory entry. */
 export class WorkspaceDirent {
 	readonly name: string;
@@ -147,15 +156,17 @@ function toBytes(data: WriteData): Uint8Array {
  */
 export class WorkspaceFsAdapter {
 	private readonly ws: WorkspaceLike;
+	private readonly virtualRoot: string;
 	/** Self-reference so isomorphic-git's `fs.promises` access works. */
 	readonly promises: WorkspaceFsAdapter;
 
-	constructor(ws: WorkspaceLike) {
+	constructor(ws: WorkspaceLike, virtualRoot = '/') {
 		this.ws = ws;
+		this.virtualRoot = this.normalizePath(virtualRoot);
 		this.promises = this;
 	}
 
-	private normalize(input: string): string {
+	private normalizePath(input: string): string {
 		const segments: string[] = [];
 		for (const part of input.split('/')) {
 			if (!part || part === '.') continue;
@@ -166,6 +177,14 @@ export class WorkspaceFsAdapter {
 			segments.push(part);
 		}
 		return `/${segments.join('/')}`;
+	}
+
+	private normalize(input: string): string {
+		const normalized = this.normalizePath(input);
+		if (this.virtualRoot === '/' || normalized === this.virtualRoot) return normalized === this.virtualRoot ? '/' : normalized;
+
+		const virtualPrefix = `${this.virtualRoot}/`;
+		return normalized.startsWith(virtualPrefix) ? normalized.slice(this.virtualRoot.length) : normalized;
 	}
 
 	async readFile(path: string, options: { encoding: BufferEncoding } | BufferEncoding): Promise<string>;
@@ -230,7 +249,11 @@ export class WorkspaceFsAdapter {
 	}
 
 	async mkdir(path: string, options?: { recursive?: boolean }): Promise<string | undefined> {
-		await this.ws.mkdir(this.normalize(path), { recursive: options?.recursive ?? false });
+		try {
+			await this.ws.mkdir(this.normalize(path), { recursive: options?.recursive ?? false });
+		} catch (error) {
+			throw normalizeWorkspaceError(error);
+		}
 		return undefined;
 	}
 

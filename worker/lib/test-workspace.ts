@@ -83,9 +83,18 @@ export class InMemoryWorkspace implements WorkspaceLike {
 	async lstat(path: string): Promise<FileStat | null> {
 		return this.stat(path);
 	}
-	async mkdir(path: string): Promise<void> {
+	async mkdir(path: string, options?: { recursive?: boolean }): Promise<void> {
 		const target = this.normalize(path);
-		this.ensureParents(target);
+		if (this.entries.has(target)) throw new Error(`EEXIST: path already exists: ${target}`);
+
+		if (options?.recursive) {
+			this.ensureParents(target);
+		} else {
+			const parent = target.slice(0, target.lastIndexOf('/')) || '/';
+			if (parent !== '/' && !this.entries.has(parent)) {
+				throw new Error(`ENOENT: parent directory not found: ${parent}`);
+			}
+		}
 		this.entries.set(target, { type: 'directory' });
 	}
 	async readDir(path: string): Promise<FileInfo[]> {
@@ -143,7 +152,7 @@ export class InMemoryWorkspace implements WorkspaceLike {
 }
 
 /** Create an in-memory project filesystem adapter bound to a fresh workspace. */
-export function createInMemoryProjectFs(): { workspace: InMemoryWorkspace; adapter: WorkspaceFsAdapter } {
+export function createInMemoryProjectFs(virtualRoot?: string): { workspace: InMemoryWorkspace; adapter: WorkspaceFsAdapter } {
 	const workspace = new InMemoryWorkspace();
-	return { workspace, adapter: new WorkspaceFsAdapter(workspace) };
+	return { workspace, adapter: new WorkspaceFsAdapter(workspace, virtualRoot) };
 }

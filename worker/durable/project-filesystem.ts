@@ -173,7 +173,9 @@ export class ProjectFilesystem extends DurableObject<Env> implements ProjectFile
 	}
 
 	private git(): GitService {
-		return new GitService(new WorkspaceFsAdapter(this.workspace), this.env, this.projectId);
+		// isomorphic-git's lock is isolate-global and keyed by dir. Give each DO a
+		// unique virtual root while the adapter maps it back to this Workspace's `/`.
+		return new GitService(new WorkspaceFsAdapter(this.workspace, `/${this.projectId}`), this.env, this.projectId);
 	}
 
 	// =========================================================================

@@ -35,6 +35,14 @@ describe('WorkspaceFsAdapter', () => {
 		await expect(adapter.access('/nope')).rejects.toMatchObject({ code: 'ENOENT' });
 	});
 
+	it('normalizes Workspace mkdir errors to Node errno errors', async () => {
+		const { adapter } = createInMemoryProjectFs();
+		await expect(adapter.mkdir('/missing/child')).rejects.toMatchObject({ code: 'ENOENT' });
+
+		await adapter.mkdir('/existing');
+		await expect(adapter.mkdir('/existing')).rejects.toMatchObject({ code: 'EEXIST' });
+	});
+
 	it('rename, unlink and rm work', async () => {
 		const { adapter } = createInMemoryProjectFs();
 		await adapter.writeFile('/old.txt', 'data');
@@ -47,10 +55,12 @@ describe('WorkspaceFsAdapter', () => {
 
 describe('isomorphic-git over WorkspaceFsAdapter', () => {
 	it('init, add, commit, log and statusMatrix work against the durable fs', async () => {
-		const { adapter } = createInMemoryProjectFs();
-		const base = { fs: adapter, dir: '/' } as const;
+		const { adapter, workspace } = createInMemoryProjectFs('/project-test');
+		const base = { fs: adapter, dir: '/project-test' } as const;
 
 		await git.init({ ...base, defaultBranch: 'main' });
+		expect(await workspace.exists('/.git')).toBe(true);
+		expect(await workspace.exists('/project-test')).toBe(false);
 		await adapter.writeFile('/README.md', '# Hello\n');
 		await git.add({ ...base, filepath: 'README.md' });
 

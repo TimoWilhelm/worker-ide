@@ -8,7 +8,6 @@ import { ensureArtifactsRepo, mintArtifactsToken } from '../services/artifacts-r
 import type { WorkspaceFsAdapter } from '../lib/workspace-fs-adapter';
 import type { GitStatusEntry, GitFileStatus, GitBranchInfo, GitCommitEntry, GitFileDiff, GitMergeResult } from '@shared/types';
 
-const GIT_DIR = '/';
 const DEFAULT_BRANCH = 'main';
 
 export interface GitAuthor {
@@ -45,6 +44,7 @@ export class GitService {
 	private readonly fs: WorkspaceFsAdapter;
 	private readonly environment: Env;
 	private readonly projectId: string;
+	private readonly gitDirectory: string;
 
 	private remoteUrl?: string;
 	private writeToken?: string;
@@ -53,6 +53,7 @@ export class GitService {
 		this.fs = fs;
 		this.environment = environment;
 		this.projectId = projectId;
+		this.gitDirectory = `/${projectId}`;
 	}
 
 	// =========================================================================
@@ -81,7 +82,7 @@ export class GitService {
 	}
 
 	private base() {
-		return { fs: this.fs, dir: GIT_DIR } as const;
+		return { fs: this.fs, dir: this.gitDirectory };
 	}
 
 	async isInitialized(): Promise<boolean> {
