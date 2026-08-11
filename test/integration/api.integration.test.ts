@@ -154,6 +154,7 @@ describe('REST API Integration Tests', () => {
 		it('GET /api/files returns the project file listing', async () => {
 			const response = await authedFetch(`${BASE_URL}/p/${projectId}/api/files`);
 			expect(response.ok).toBe(true);
+			expect(response.headers.get('content-type')).toContain('application/json');
 
 			const result: { files: Array<{ path: string; name: string; isDirectory: boolean }> } = await response.json();
 			expect(Array.isArray(result.files)).toBe(true);
@@ -163,6 +164,17 @@ describe('REST API Integration Tests', () => {
 				expect(file).toHaveProperty('path');
 				expect(file).toHaveProperty('name');
 				expect(file).toHaveProperty('isDirectory');
+			}
+		});
+
+		it('repeated project API requests do not fall through to the app shell', async () => {
+			for (let requestIndex = 0; requestIndex < 3; requestIndex++) {
+				const response = await authedFetch(`${BASE_URL}/p/${projectId}/api/files`);
+				expect(response.status).toBe(200);
+				expect(response.headers.get('content-type')).toContain('application/json');
+
+				const result: { files: unknown[] } = await response.json();
+				expect(Array.isArray(result.files)).toBe(true);
 			}
 		});
 

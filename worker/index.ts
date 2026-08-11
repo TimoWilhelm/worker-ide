@@ -1354,8 +1354,11 @@ app.post('/api/clone-project', async (c) => {
 	}
 });
 
-// Project-scoped API / WebSocket / preview routes
-app.all('/p/:projectId/*', async (c) => {
+// Project-scoped API / WebSocket / preview routes. This app is mounted once so
+// Hono compiles the project route tree at startup rather than once per request.
+const projectApp = new Hono<AppEnvironment>();
+
+projectApp.use('*', async (c, next) => {
 	const path = new URL(c.req.url).pathname;
 	const projectRoute = parseProjectRoute(path);
 
@@ -1486,44 +1489,34 @@ app.all('/p/:projectId/*', async (c) => {
 		return agentStub.fetch(new Request(agentUrl, { ...c.req.raw, headers: agentHeaders }));
 	}
 
-	return runWithProjectStub(fsStub, async () => {
-		if (subPath === '/__ws' || subPath.startsWith('/__ws')) {
-			if (!hasValidWebSocketOrigin(c.req.raw, appOrigin)) {
-				return new Response('Forbidden', { status: 403 });
-			}
-			const { collaborationVisible } = c.get('session');
-			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
-			const wsUrl = new URL(c.req.url);
-			wsUrl.pathname = '/ws';
-			const wsRequest = new Request(wsUrl, c.req.raw);
-			wsRequest.headers.set('x-project-id', projectId);
-			wsRequest.headers.set('x-worker-ide-client-kind', 'ide');
-			wsRequest.headers.set('x-worker-ide-collaboration-visible', collaborationVisible ? 'true' : 'false');
-			return coordinatorStub.fetch(wsRequest);
+	if (subPath === '/__ws' || subPath.startsWith('/__ws')) {
+		if (!hasValidWebSocketOrigin(c.req.raw, appOrigin)) {
+			return new Response('Forbidden', { status: 403 });
 		}
+		const { collaborationVisible } = c.get('session');
+		const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
+		const wsUrl = new URL(c.req.url);
+		wsUrl.pathname = '/ws';
+		const wsRequest = new Request(wsUrl, c.req.raw);
+		wsRequest.headers.set('x-project-id', projectId);
+		wsRequest.headers.set('x-worker-ide-client-kind', 'ide');
+		wsRequest.headers.set('x-worker-ide-collaboration-visible', collaborationVisible ? 'true' : 'false');
+		return coordinatorStub.fetch(wsRequest);
+	}
 
-		const projectApp = new Hono<AppEnvironment>();
-
-		projectApp.use('*', async (context, innerNext) => {
-			context.set('session', c.get('session'));
-			context.set('projectId', projectId);
-			context.set('projectRoot', PROJECT_ROOT);
-			context.set('fsStub', fsStub);
-			await innerNext();
-		});
-
-		if (import.meta.env.DEV) {
-			projectApp.route('/api', developmentTestRoutes);
-		}
-
-		projectApp.route('/api', apiRoutes);
-
-		const apiUrl = new URL(c.req.url);
-		apiUrl.pathname = subPath;
-
-		return projectApp.fetch(new Request(apiUrl, c.req.raw), env, c.executionCtx);
-	});
+	c.set('projectId', projectId);
+	c.set('projectRoot', PROJECT_ROOT);
+	c.set('fsStub', fsStub);
+	await runWithProjectStub(fsStub, next);
 });
+
+if (import.meta.env.DEV) {
+	projectApp.route('/api', developmentTestRoutes);
+}
+
+projectApp.route('/api', apiRoutes);
+projectApp.all('/api/*', (c) => c.notFound());
+app.route('/p/:projectId', projectApp);
 
 app.get('/p/:projectId', async (c) => {
 	return env.ASSETS.fetch(c.req.raw);
